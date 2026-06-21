@@ -1,0 +1,133 @@
+@import "tailwindcss";
+
+:root {
+  --cell: 48px;          /* grid cell size; smaller = more/denser tiles */
+}
+
+/* Keep this reset in the base layer so Tailwind's padding/margin utilities still
+   win. An unlayered universal rule would override every spacing utility. */
+@layer base {
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+}
+
+html, body, #root { min-height: 100%; }
+
+/* hide the scrollbar but keep scrolling enabled */
+html, body { scrollbar-width: none; -ms-overflow-style: none; }
+html::-webkit-scrollbar, body::-webkit-scrollbar { width: 0; height: 0; display: none; }
+
+body {
+  font-family: ui-monospace, "SF Mono", "JetBrains Mono", "Cascadia Code",
+               "Courier New", monospace;
+  background: #10100f;          /* near-black */
+  color: #fbefc5;               /* saturated cream */
+}
+
+/* pixel display face (softer / higher-res pixel look) */
+.font-pixel { font-family: "Pixelify Sans", ui-monospace, monospace; }
+
+/* terminal cursor blink */
+.blink { animation: blink 1.05s steps(1) infinite; }
+@keyframes blink {
+  0%, 50%      { opacity: 1; }
+  50.01%, 100% { opacity: 0; }
+}
+
+/* ---- Whole-page 3D flip transition (native CSS, no WebGL/Spline) ----
+   A perspective scene holds a two-faced card that scales down (dip) and rotates
+   180deg to reveal the back page. Driven by the `progress` Motion value in
+   App.jsx, so scroll scrubs it (the cat click just plays it once). ---- */
+/* tall scroll track (height set inline from how many pages are unlocked); the
+   scene sticks while you scroll through it, so scroll scrubs the transitions. */
+.flip-track { position: relative; }
+
+.flip-scene {
+  position: sticky;
+  top: 0;
+  height: 100dvh;
+  overflow: hidden;
+  perspective: 1800px;
+  background: #000000;          /* the void revealed as the card zooms out */
+}
+/* Depth rig for the page 2 -> 3 transition. The camera scales (zoom dip) around
+   the viewport center; the world (a tall vertical stack of full-height slots)
+   pans up to bring page 3 into view. preserve-3d keeps the flip's perspective. */
+.depth-camera {
+  position: absolute;
+  inset: 0;
+  transform-style: preserve-3d;
+  will-change: transform;
+}
+.depth-world {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  transform-style: preserve-3d;
+  will-change: transform;
+}
+.depth-slot {
+  position: relative;
+  height: 100dvh;
+  width: 100%;
+}
+/* deep empty void between the about page and page 3 (taller = longer dive) */
+.depth-void {
+  height: 230dvh;
+  width: 100%;
+}
+
+.flip-card {
+  position: absolute;
+  inset: 0;
+  transform-style: preserve-3d;
+  will-change: transform;
+}
+.flip-face {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  backface-visibility: hidden;
+  -webkit-backface-visibility: hidden;
+}
+.flip-front { background: #10100f; }   /* the page itself (near-black) */
+.flip-back  { transform: rotateY(180deg); background: #f2e7be; }
+
+/* Tile-trail stage: sits ON TOP of everything so the trail "eats" the text
+   and all other on-screen content as the cursor moves across it. */
+.stage {
+  position: absolute;
+  inset: 0;
+  z-index: 40;
+  background: transparent;
+  overflow: hidden;
+  cursor: crosshair;
+}
+
+.tile {
+  position: absolute;
+  width: var(--cell);
+  height: var(--cell);
+  display: grid;
+  place-items: center;
+  background: #0d0a0a;
+  color: #f2e7be;
+  /* monospace = code feel; each glyph reads like a token in an editor */
+  font-family: ui-monospace, "SF Mono", "JetBrains Mono", "Cascadia Code",
+               "Courier New", monospace;
+  font-size: calc(var(--cell) * 0.86);
+  font-weight: 200;
+  line-height: 1;
+  user-select: none;
+  will-change: transform, opacity;
+  /* born hidden, then snaps to solid almost instantly (no gradual fade) */
+  transform: scale(0.7);
+  opacity: 0;
+  transition: transform 0.05s linear, opacity 0.05s linear;
+}
+
+/* solid "head" tile under the cursor; holds at full while hovering */
+.tile.in {
+  transform: scale(1);
+  opacity: 1;
+}

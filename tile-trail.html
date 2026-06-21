@@ -1,0 +1,246 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Tile Trail</title>
+<style>
+  :root {
+    --cell: 48px;          /* grid cell size — smaller = more/denser tiles */
+    --lifetime: 420ms;     /* how long a tile lingers before fading */
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  html, body { height: 100%; overflow: hidden; }
+
+  body {
+    font-family: "Courier New", ui-monospace, monospace;
+    background: #0a0606;
+    cursor: crosshair;
+  }
+
+  /* Warm gradient + image stand-in for the hero background */
+  #stage {
+    position: fixed;
+    inset: 0;
+    background:
+      radial-gradient(120% 120% at 70% 20%, #ff7a3c 0%, #c43b1e 35%, #5c1810 70%, #1a0a08 100%);
+    overflow: hidden;
+  }
+
+  /* subtle vignette so tiles read against the bright zone */
+  #stage::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    background: radial-gradient(140% 100% at 50% 50%, transparent 40%, rgba(0,0,0,0.55) 100%);
+    pointer-events: none;
+  }
+
+  .tile {
+    position: absolute;
+    width: var(--cell);
+    height: var(--cell);
+    display: grid;
+    place-items: center;
+    background: #0d0a0a;
+    color: #f4f0ec;
+    /* monospace = code feel; each glyph reads like a token in an editor */
+    font-family: ui-monospace, "SF Mono", "JetBrains Mono", "Cascadia Code",
+                 "Courier New", monospace;
+    font-size: calc(var(--cell) * 0.86);
+    font-weight: 200;
+    line-height: 1;
+    user-select: none;
+    will-change: transform, opacity;
+    /* born hidden, then snaps to solid almost instantly (no gradual fade) */
+    transform: scale(0.7);
+    opacity: 0;
+    transition: transform 0.05s linear, opacity 0.05s linear;
+  }
+
+  /* solid "head" tile under the cursor — holds at full while hovering */
+  .tile.in {
+    transform: scale(1);
+    opacity: 1;
+  }
+
+  /* released tail tiles just hold solid, then vanish instantly via JS */
+
+  /* cool release: tiles pop outward and fade when you let go of the drag */
+  .tile.burst {
+    animation: burst 340ms cubic-bezier(0.34, 1.56, 0.64, 1) forwards;
+  }
+  @keyframes burst {
+    0%   { transform: scale(1);    opacity: 1; }
+    35%  { transform: scale(1.28); opacity: 1; }
+    100% { transform: scale(0.1);  opacity: 0; }
+  }
+
+  .label {
+    position: fixed;
+    top: 24px;
+    left: 24px;
+    z-index: 10;
+    color: #f4f0ec;
+    border: 1px solid rgba(244,240,236,0.5);
+    border-radius: 12px;
+    padding: 10px 18px;
+    font-size: 18px;
+    letter-spacing: 0.04em;
+    pointer-events: none;
+  }
+</style>
+</head>
+<body>
+  <div class="label">tile trail</div>
+  <div id="stage"></div>
+
+<script>
+  const stage = document.getElementById("stage");
+
+  // Read tunables from CSS so they stay in one place
+  const styles = getComputedStyle(document.documentElement);
+  const CELL = parseInt(styles.getPropertyValue("--cell"));
+  const LIFETIME = parseFloat(styles.getPropertyValue("--lifetime"));
+
+  // Two glyph "systems" rendered at different sizes. Put chunky/hero symbols
+  // in BIG, delicate/accent ones in SMALL — each tile uses its list's size.
+  const BIG_GLYPHS   = [  "{","}",">", "<", "#", "λ", "*", "/", "✺", "⌖", "⏥" ];
+  const SMALL_GLYPHS = [ "=", ";", "&", "|", "0", "1", "$", "%", "⟴","()", "[]"];
+  const BIG_SIZE   = .98;   // font-size as a fraction of the cell
+  const SMALL_SIZE = 0.69;
+
+  // Brush: the cursor always draws a full diamond of cells (the "head" cross).
+  // This is deterministic, so hovering ALWAYS shows the complete cross.
+  const BRUSH_RADIUS = 2;                  // diamond reach (Manhattan distance)
+
+  // Precompute the diamond offsets once
+  const BRUSH = [];
+  for (let dx = -BRUSH_RADIUS; dx <= BRUSH_RADIUS; dx++) {
+    for (let dy = -BRUSH_RADIUS; dy <= BRUSH_RADIUS; dy++) {
+      if (Math.abs(dx) + Math.abs(dy) <= BRUSH_RADIUS) BRUSH.push({ dx, dy });
+    }
+  }
+
+  // Chance a tile is blank (black square with no glyph)
+  const EMPTY_CHANCE = 0.35;
+  // Returns { ch, size } — picks a list, then a glyph + matching size
+  const randGlyph = () => {
+    if (Math.random() < EMPTY_CHANCE) return { ch: "", size: BIG_SIZE };
+    const big = Math.random() < 0.5;     // 50/50 big vs small list
+    const pool = big ? BIG_GLYPHS : SMALL_GLYPHS;
+    return { ch: pick(pool), size: big ? BIG_SIZE : SMALL_SIZE };
+  };
+  const cellKey = (c, r) => c + "_" + r;
+
+  // Per-tile thickness/shape variation — this is what gives the eclectic,
+  // hand-set look. Each tile randomly picks a weight + a font family so no
+  // two glyphs share the same heft. Serif adds thick/thin stroke contrast,
+  // mono adds a mechanical texture, sans stays clean.
+  const WEIGHTS = [100, 250, 400, 500, 900];
+  const FONTS = [
+    'system-ui, -apple-system, "Segoe UI", sans-serif',
+    'Georgia, "Times New Roman", serif',
+    '"Courier New", ui-monospace, monospace',
+  ];
+  const pick = (a) => a[(Math.random() * a.length) | 0];
+
+  // The currently-solid head cross: cell key -> tile element
+  const head = new Map();
+  let currentKey = null;
+
+  function makeTile(col, row) {
+    const t = document.createElement("div");
+    t.className = "tile";
+    const g = randGlyph();
+    t.textContent = g.ch;
+    t.style.fontSize = CELL * g.size + "px";
+    t.style.left = col * CELL + "px";
+    t.style.top = row * CELL + "px";
+    stage.appendChild(t);
+    requestAnimationFrame(() => t.classList.add("in")); // trigger fade-in
+    return t;
+  }
+
+  // Trailing tiles hold solid for a random beat in [MIN_TAIL, MAX_TAIL] ms,
+  // then vanish instantly. MIN_TAIL guarantees every tile lingers at least a
+  // moment (so the trail never blinks out the instant the cursor leaves),
+  // while a few near MAX_TAIL persist longer. Kept short to stay snappy.
+  const MIN_TAIL = 120;
+  const MAX_TAIL = 260;
+
+  // Release a head tile into the tail: hold it solid for a random short beat,
+  // then remove it instantly (no fade).
+  function release(t) {
+    const hold = MIN_TAIL + Math.random() * (MAX_TAIL - MIN_TAIL);
+    setTimeout(() => t.remove(), hold);
+  }
+
+  // Redraw the head cross at a new cell: keep overlapping cells solid,
+  // release the ones we left behind, spawn the ones we just entered.
+  function moveCross(col, row) {
+    const desired = new Map();
+    for (const { dx, dy } of BRUSH) {
+      desired.set(cellKey(col + dx, row + dy), [col + dx, row + dy]);
+    }
+    // release head cells no longer under the cursor
+    for (const [key, el] of head) {
+      if (!desired.has(key)) { release(el); head.delete(key); }
+    }
+    // spawn newly-entered cells (overlap stays untouched → no flicker)
+    for (const [key, [c, r]] of desired) {
+      if (!head.has(key)) head.set(key, makeTile(c, r));
+    }
+  }
+
+  let dragging = false;
+  let currentCol = 0, currentRow = 0;
+
+  function drawAt(e) {
+    const col = Math.floor(e.clientX / CELL);
+    const row = Math.floor(e.clientY / CELL);
+    const key = cellKey(col, row);
+    if (key === currentKey) return;       // same cell → cross already drawn
+    currentKey = key;
+    currentCol = col;
+    currentRow = row;
+    moveCross(col, row);
+  }
+
+  // Cool release: every remaining head tile bursts outward + fades, staggered
+  // by its distance from the cursor so the cross ripples apart from the center.
+  function burstAll() {
+    for (const [key, el] of head) {
+      const [c, r] = key.split("_").map(Number);
+      const dist = Math.abs(c - currentCol) + Math.abs(r - currentRow);
+      const delay = dist * 32 + Math.random() * 60;
+      el.classList.remove("in");
+      el.style.animationDelay = delay + "ms";
+      el.classList.add("burst");
+      setTimeout(() => el.remove(), delay + 360);
+    }
+    head.clear();
+    currentKey = null;
+  }
+
+  stage.addEventListener("pointerdown", (e) => {
+    dragging = true;
+    drawAt(e);
+  });
+
+  stage.addEventListener("pointermove", (e) => {
+    if (!dragging) return;                // only draw while click is held
+    drawAt(e);
+  });
+
+  // let go anywhere → burst the cross apart
+  window.addEventListener("pointerup", () => {
+    if (!dragging) return;
+    dragging = false;
+    burstAll();
+  });
+</script>
+</body>
+</html>
