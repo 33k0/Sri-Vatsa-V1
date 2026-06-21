@@ -40,7 +40,7 @@ export const PROJECTS = [
     tag: "// PORTFOLIO",
     name: "Sri Vatsa — V1",
     desc: "My portfolio, designed with varying effects, animations, and graphics, built using React and Vite. Every section is its own little interactive scene (page flips, a deep dive into the void, and tile sweeps) all wired together with scroll-driven motion.",
-    links: [{ label: "REPO · TBD" }],
+    links: [{ label: "REPO", href: "https://github.com/33k0/Sri-Vatsa-V1" }],
   },
   {
     file: "project_4.exe",
