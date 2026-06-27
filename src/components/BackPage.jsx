@@ -114,7 +114,7 @@ export default function BackPage({ revealed = false, onDescend, older = false, s
       {/* cat slides in bottom-right and invites you to the next page */}
       {showCat && (
         <motion.div
-          className="pointer-events-none absolute bottom-[6%] right-[-5%] z-50 w-[32vw] max-w-[420px] overflow-visible"
+          className="pointer-events-none absolute bottom-[12%] right-[-5%] z-50 w-[32vw] max-w-[420px] overflow-visible"
           initial={reduce || instant ? false : { opacity: 0, x: "130%" }}
           animate={{ opacity: 1, x: 0 }}
           transition={{ duration: instant ? 0 : 0.9, ease: [0.16, 1, 0.3, 1] }}
